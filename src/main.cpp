@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <ESPAsyncWebServer.h>
 #include <map>
 #include <string>
 
@@ -8,11 +9,14 @@
 
 Scheduler userScheduler;
 namedMesh mesh;
-std::map<String, double> rooms;
+std::map<String, String> rooms;
+
+AsyncWebServer server(80);
+IPAddress myAPIP(0, 0, 0, 0);
 
 Task taskSendMessage(TASK_SECOND * 5, TASK_FOREVER, []()
                      {
-  rooms[nodeName] = getTemperature();
+  rooms[nodeName] = String(getTemperature());
   String msg = String(rooms[nodeName]);
 
   mesh.sendBroadcast(msg); });
@@ -28,7 +32,14 @@ void setup()
   mesh.setName(nodeName);
 
   mesh.onReceive([](String &from, String &msg)
-                 { Serial.printf("[%s] %s temperature is: %s", nodeName, from.c_str(), msg.c_str()); });
+                 { 
+                  String room = from.c_str();
+                  String temp = msg.c_str();
+                  String ip = mesh.getAPIP().toString();
+                  
+                  Serial.printf("[%s (%s)] %s temperature is: %s \n", nodeName, ip, room, temp); 
+                  
+                  rooms[room] = temp; });
 
   mesh.onChangedConnections([]()
                             { Serial.printf("[INFORMATION] Network topology has changed\n"); });
@@ -36,11 +47,13 @@ void setup()
   mesh.onNewConnection([](uint32_t nodeId)
                        { Serial.printf("[INFORMATION] New node: %u\n", nodeId); });
 
-  // mesh.onNodeTimeAdjusted([](int32_t offset)
-  //                         { Serial.printf("[%s] Adjusted time %u. Offset = %d\n", nodeName, mesh.getNodeTime(), offset); });
-
   userScheduler.addTask(taskSendMessage);
   taskSendMessage.enable();
+
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
+            { request->send(200, "text/plain", "Hello, world"); });
+
+  server.begin();
 }
 
 void loop()

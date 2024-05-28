@@ -1,4 +1,6 @@
 #include <Arduino.h>
+#include "AsyncJson.h"
+#include "ArduinoJson.h"
 #include <ESPAsyncWebServer.h>
 #include <map>
 #include <string>
@@ -10,35 +12,37 @@
 Scheduler userScheduler;
 namedMesh mesh;
 std::map<String, String> rooms;
+StaticJsonDocument<128> serializedRooms;
 
 AsyncWebServer server(80);
-IPAddress myAPIP(0, 0, 0, 0);
+IPAddress getlocalIP();
+IPAddress myIP(0, 0, 0, 0);
 
 Task taskSendMessage(TASK_SECOND * 5, TASK_FOREVER, []()
                      {
-  rooms[nodeName] = String(getTemperature());
-  String msg = String(rooms[nodeName]);
-
-  mesh.sendBroadcast(msg); });
+                       rooms[nodeName] = String(getTemperature());
+                       String msg = String(rooms[nodeName]);
+                       mesh.sendBroadcast(msg); });
 
 void setup()
 {
   Serial.begin(115200);
 
-  // mesh.setDebugMsgTypes( ERROR | MESH_STATUS | CONNECTION | SYNC | COMMUNICATION | GENERAL | MSG_TYPES | REMOTE );
   mesh.setDebugMsgTypes(ERROR | STARTUP);
+  // mesh channel set to 1, it should be the same as station
   mesh.init(MESH_SSID, MESH_PASSWORD, &userScheduler, MESH_PORT, WIFI_AP_STA, 1, HIDDEN_NETWORK);
 
   mesh.setName(nodeName);
+  mesh.setHostname(HOSTNAME);
+  mesh.stationManual(STATION_SSID, STATION_PASSWORD);
+  mesh.setRoot(IS_ROOT); // only one root
+  mesh.setContainsRoot(true);
 
   mesh.onReceive([](String &from, String &msg)
                  { 
                   String room = from.c_str();
                   String temp = msg.c_str();
-                  String ip = mesh.getAPIP().toString();
-                  
-                  Serial.printf("[%s (%s)] %s temperature is: %s \n", nodeName, ip, room, temp); 
-                  
+                  // Serial.printf("[%s] %s temperature is: %s \n", nodeName, room, temp); 
                   rooms[room] = temp; });
 
   mesh.onChangedConnections([]()
@@ -50,13 +54,40 @@ void setup()
   userScheduler.addTask(taskSendMessage);
   taskSendMessage.enable();
 
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-            { request->send(200, "text/plain", "Hello, world"); });
+  if (IS_ROOT)
+  {
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
+              {
+              /*
+              {
+                [
+                  NODE_0 = 6,
+                  NODE_1 = 4,
+                  NODE_3 = 1
+                ]
+              }
+              */
+              for (const auto &[k, v] : rooms)
+              {
+    
+                serializedRooms[k] = v;
+                Serial.printf("[DEBUG (%s)] rooms[%s] = %s \n", nodeName, k, v);
+              }
+              String data;
+              serializeJsonPretty(serializedRooms, data);
+              serializeJsonPretty(serializedRooms, Serial);
+              request->send(200, "application/json", data); });
 
-  server.begin();
+    server.begin();
+  }
 }
 
 void loop()
 {
   mesh.update();
+}
+
+IPAddress getlocalIP()
+{
+  return IPAddress(mesh.getStationIP());
 }

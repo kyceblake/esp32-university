@@ -29,20 +29,22 @@ void setup()
   Serial.begin(115200);
 
   mesh.setDebugMsgTypes(ERROR | STARTUP);
-  // mesh channel set to 1, it should be the same as station
-  mesh.init(MESH_SSID, MESH_PASSWORD, &userScheduler, MESH_PORT, WIFI_AP_STA, 1, HIDDEN_NETWORK);
+  mesh.init(MESH_SSID, MESH_PASSWORD, &userScheduler, MESH_PORT, WIFI_AP_STA, 7, HIDDEN_NETWORK);
 
   mesh.setName(nodeName);
-  mesh.setHostname(HOSTNAME);
-  mesh.stationManual(STATION_SSID, STATION_PASSWORD);
-  mesh.setRoot(IS_ROOT); // only one root
-  mesh.setContainsRoot(true);
+  // mesh.setHostname(HOSTNAME);
+  // mesh.setRoot(IS_ROOT); // only one root
+
+  // TODO: there is setRoot() which can be used when root is down
+  // mesh.setContainsRoot(true);
+  // mesh.onDroppedConnection([](uint32_t nodeId)
+  //                          { Serial.printf("[INFORMATION] Node %s has been disconnected", String(nodeId)); });
 
   mesh.onReceive([](String &from, String &msg)
                  { 
                   String room = from.c_str();
                   String temp = msg.c_str();
-                  // Serial.printf("[%s] %s temperature is: %s \n", nodeName, room, temp); 
+                  Serial.printf("[%s] %s temperature is: %s \n", nodeName, room, temp); 
                   rooms[room] = temp; });
 
   mesh.onChangedConnections([]()
@@ -54,10 +56,8 @@ void setup()
   userScheduler.addTask(taskSendMessage);
   taskSendMessage.enable();
 
-  if (IS_ROOT)
-  {
-    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
-              {
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request)
+            {
               /*
               {
                 [
@@ -78,8 +78,7 @@ void setup()
               serializeJsonPretty(serializedRooms, Serial);
               request->send(200, "application/json", data); });
 
-    server.begin();
-  }
+  server.begin();
 }
 
 void loop()
